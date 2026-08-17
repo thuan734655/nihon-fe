@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-// Automatically detect environment: use full URL locally, relative path in production
-const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3001/api' : '/api');
+// Automatically detect environment or use the provided Render backend endpoint
+const API_URL = import.meta.env.VITE_API_URL || 'https://nihon-be-q5a3.onrender.com/api';
 
 export const getItems = async (type) => {
   const res = await axios.get(`${API_URL}/items/${type}`);
