@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const API_URL = 'http://localhost:3001/api';
+// Automatically detect environment: use full URL locally, relative path in production
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3001/api' : '/api');
 
 export const getItems = async (type) => {
   const res = await axios.get(`${API_URL}/items/${type}`);
