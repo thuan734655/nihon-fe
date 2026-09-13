@@ -16,8 +16,8 @@ const GrammarList = () => {
     setLoading(true);
     try {
       const data = await getItems('grammar');
-      // Sort explicitly by ID descending (Firebase push keys are chronologically sortable)
-      const sortedData = data ? [...data].sort((a, b) => b.id.localeCompare(a.id)) : [];
+      // Sort explicitly by ID descending using standard string comparison
+      const sortedData = data ? [...data].sort((a, b) => (a.id < b.id ? 1 : -1)) : [];
       setGrammars(sortedData);
       setSelectedIds([]);
     } catch (e) {
@@ -55,6 +55,7 @@ const GrammarList = () => {
         await updateItem('grammar', formData.id, payload);
       } else {
         await addItem('grammar', payload);
+        setCurrentPage(1); // Jump to first page to see the newly added item
       }
       setIsModalOpen(false);
       fetchGrammars();
@@ -90,11 +91,20 @@ const GrammarList = () => {
     );
   };
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 50;
+
+  const totalPages = Math.ceil(grammars.length / itemsPerPage);
+  const currentGrammars = grammars.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
   const handleSelectAll = () => {
-    if (selectedIds.length === grammars.length) {
-      setSelectedIds([]);
+    const currentPageIds = currentGrammars.map(g => g.id);
+    const allSelectedOnPage = currentPageIds.every(id => selectedIds.includes(id));
+    
+    if (allSelectedOnPage) {
+      setSelectedIds(prev => prev.filter(id => !currentPageIds.includes(id)));
     } else {
-      setSelectedIds(grammars.map(g => g.id));
+      setSelectedIds(prev => Array.from(new Set([...prev, ...currentPageIds])));
     }
   };
 
@@ -123,17 +133,19 @@ const GrammarList = () => {
     new Set(grammars.map(g => g.topic && typeof g.topic === 'string' ? g.topic.trim() : '').filter(Boolean))
   ).sort();
 
+  const isAllCurrentPageSelected = currentGrammars.length > 0 && currentGrammars.every(g => selectedIds.includes(g.id));
+
   return (
     <div className="animate-fade-in">
       <div className="flex justify-between items-center mb-8 flex-wrap gap-4">
         <div className="flex items-center gap-4">
           <h1 className="mb-0">文法の管理</h1>
-          {grammars.length > 0 && (
+          {currentGrammars.length > 0 && (
             <button 
               className="btn btn-secondary text-sm" 
               onClick={handleSelectAll}
             >
-              {selectedIds.length === grammars.length ? '全選択解除' : 'すべて選択'}
+              {isAllCurrentPageSelected ? 'このページを選択解除' : 'このページをすべて選択'}
             </button>
           )}
         </div>
@@ -152,56 +164,80 @@ const GrammarList = () => {
       {loading ? (
         <p>Loading...</p>
       ) : (
-        <div className="data-grid">
-          {grammars.map(grammar => (
-            <div key={grammar.id} className={`glass-panel item-card ${selectedIds.includes(grammar.id) ? 'ring-2 ring-primary' : ''}`}>
-              <div className="flex justify-between items-start mb-2">
-                <div className="flex items-center gap-3">
-                  <input 
-                    type="checkbox" 
-                    className="w-5 h-5 accent-primary cursor-pointer" 
-                    checked={selectedIds.includes(grammar.id)}
-                    onChange={() => handleToggleSelect(grammar.id)}
-                  />
-                  <h3 className="jp-text text-xl text-pink-400 m-0">{grammar.title}</h3>
+        <>
+          <div className="data-grid">
+            {currentGrammars.map(grammar => (
+              <div key={grammar.id} className={`glass-panel item-card ${selectedIds.includes(grammar.id) ? 'ring-2 ring-primary' : ''}`}>
+                <div className="flex justify-between items-start mb-2">
+                  <div className="flex items-center gap-3">
+                    <input 
+                      type="checkbox" 
+                      className="w-5 h-5 accent-primary cursor-pointer" 
+                      checked={selectedIds.includes(grammar.id)}
+                      onChange={() => handleToggleSelect(grammar.id)}
+                    />
+                    <h3 className="jp-text text-xl text-pink-400 m-0">{grammar.title}</h3>
+                  </div>
+                  {grammar.topic && <span className="bg-pink-500/20 text-pink-300 text-xs px-2 py-1 rounded">{grammar.topic}</span>}
                 </div>
-                {grammar.topic && <span className="bg-pink-500/20 text-pink-300 text-xs px-2 py-1 rounded">{grammar.topic}</span>}
+                <p className="jp-text text-muted font-mono bg-black/20 p-2 rounded mt-2" style={{ whiteSpace: 'pre-wrap' }}>{grammar.structure}</p>
+                <p className="mt-2 text-white" style={{ whiteSpace: 'pre-wrap' }}>{grammar.meaning}</p>
+                {grammar.usage && (
+                  <div className="mt-2 text-sm text-gray-400 border-l-2 border-gray-600 pl-2" style={{ whiteSpace: 'pre-wrap' }}>
+                    <span className="block text-xs mb-1">使い方:</span>
+                    {grammar.usage}
+                  </div>
+                )}
+                {grammar.example && (
+                  <div className="mt-4 p-3 border-l-2 border-primary bg-white/5 rounded-r">
+                    <span className="text-xs text-muted block mb-1">例文:</span>
+                    <p className="jp-text" style={{ whiteSpace: 'pre-wrap' }}>{grammar.example}</p>
+                  </div>
+                )}
+                
+                <div className="item-actions mt-auto pt-4">
+                  <button 
+                    className={`btn flex-1 ${grammar.inReviewCycle === false ? 'btn-danger' : 'btn-success'}`}
+                    onClick={() => handleToggleReview(grammar)}
+                    title={grammar.inReviewCycle === false ? '復習オフ' : '復習オン'}
+                  >
+                    {grammar.inReviewCycle === false ? <EyeOff size={16} /> : <Eye size={16} />} 
+                    {grammar.inReviewCycle === false ? 'オフ' : 'オン'}
+                  </button>
+                  <button className="btn btn-secondary flex-1" onClick={() => handleOpenModal(grammar)}>
+                    <Edit2 size={16} /> 編集
+                  </button>
+                  <button className="btn btn-danger flex-1" onClick={() => handleDelete(grammar.id)}>
+                    <Trash2 size={16} /> 削除
+                  </button>
+                </div>
               </div>
-              <p className="jp-text text-muted font-mono bg-black/20 p-2 rounded mt-2" style={{ whiteSpace: 'pre-wrap' }}>{grammar.structure}</p>
-              <p className="mt-2 text-white" style={{ whiteSpace: 'pre-wrap' }}>{grammar.meaning}</p>
-              {grammar.usage && (
-                <div className="mt-2 text-sm text-gray-400 border-l-2 border-gray-600 pl-2" style={{ whiteSpace: 'pre-wrap' }}>
-                  <span className="block text-xs mb-1">使い方:</span>
-                  {grammar.usage}
-                </div>
-              )}
-              {grammar.example && (
-                <div className="mt-4 p-3 border-l-2 border-primary bg-white/5 rounded-r">
-                  <span className="text-xs text-muted block mb-1">例文:</span>
-                  <p className="jp-text" style={{ whiteSpace: 'pre-wrap' }}>{grammar.example}</p>
-                </div>
-              )}
-              
-              <div className="item-actions mt-auto pt-4">
-                <button 
-                  className={`btn flex-1 ${grammar.inReviewCycle === false ? 'btn-danger' : 'btn-success'}`}
-                  onClick={() => handleToggleReview(grammar)}
-                  title={grammar.inReviewCycle === false ? '復習オフ' : '復習オン'}
-                >
-                  {grammar.inReviewCycle === false ? <EyeOff size={16} /> : <Eye size={16} />} 
-                  {grammar.inReviewCycle === false ? 'オフ' : 'オン'}
-                </button>
-                <button className="btn btn-secondary flex-1" onClick={() => handleOpenModal(grammar)}>
-                  <Edit2 size={16} /> 編集
-                </button>
-                <button className="btn btn-danger flex-1" onClick={() => handleDelete(grammar.id)}>
-                  <Trash2 size={16} /> 削除
-                </button>
-              </div>
+            ))}
+            {currentGrammars.length === 0 && <p className="text-muted">文法がありません。</p>}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex justify-center gap-2 mt-8">
+              <button 
+                className="btn btn-secondary" 
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              >
+                前へ
+              </button>
+              <span className="flex items-center px-4">
+                {currentPage} / {totalPages}
+              </span>
+              <button 
+                className="btn btn-secondary" 
+                disabled={currentPage === totalPages}
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              >
+                次へ
+              </button>
             </div>
-          ))}
-          {grammars.length === 0 && <p className="text-muted">文法がありません。</p>}
-        </div>
+          )}
+        </>
       )}
 
       {isModalOpen && (

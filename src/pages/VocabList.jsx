@@ -16,8 +16,8 @@ const VocabList = () => {
     setLoading(true);
     try {
       const data = await getItems('vocab');
-      // Sort explicitly by ID descending (Firebase push keys are chronologically sortable)
-      const sortedData = data ? [...data].sort((a, b) => b.id.localeCompare(a.id)) : [];
+      // Sort explicitly by ID descending using standard string comparison
+      const sortedData = data ? [...data].sort((a, b) => (a.id < b.id ? 1 : -1)) : [];
       setVocabs(sortedData);
       setSelectedIds([]); // Reset selection on fetch
     } catch (e) {
@@ -62,6 +62,7 @@ const VocabList = () => {
           topic: formData.topic,
           example: formData.example || null
         });
+        setCurrentPage(1); // Jump to first page to see the newly added item
       }
       setIsModalOpen(false);
       fetchVocabs();
@@ -97,11 +98,20 @@ const VocabList = () => {
     );
   };
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 50;
+
+  const totalPages = Math.ceil(vocabs.length / itemsPerPage);
+  const currentVocabs = vocabs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
   const handleSelectAll = () => {
-    if (selectedIds.length === vocabs.length) {
-      setSelectedIds([]);
+    const currentPageIds = currentVocabs.map(v => v.id);
+    const allSelectedOnPage = currentPageIds.every(id => selectedIds.includes(id));
+    
+    if (allSelectedOnPage) {
+      setSelectedIds(prev => prev.filter(id => !currentPageIds.includes(id)));
     } else {
-      setSelectedIds(vocabs.map(v => v.id));
+      setSelectedIds(prev => Array.from(new Set([...prev, ...currentPageIds])));
     }
   };
 
@@ -130,17 +140,19 @@ const VocabList = () => {
     new Set(vocabs.map(v => v.topic && typeof v.topic === 'string' ? v.topic.trim() : '').filter(Boolean))
   ).sort();
 
+  const isAllCurrentPageSelected = currentVocabs.length > 0 && currentVocabs.every(v => selectedIds.includes(v.id));
+
   return (
     <div className="animate-fade-in">
       <div className="flex justify-between items-center mb-8 flex-wrap gap-4">
         <div className="flex items-center gap-4">
           <h1 className="mb-0">単語の管理</h1>
-          {vocabs.length > 0 && (
+          {currentVocabs.length > 0 && (
             <button 
               className="btn btn-secondary text-sm" 
               onClick={handleSelectAll}
             >
-              {selectedIds.length === vocabs.length ? '全選択解除' : 'すべて選択'}
+              {isAllCurrentPageSelected ? 'このページを選択解除' : 'このページをすべて選択'}
             </button>
           )}
         </div>
@@ -159,54 +171,78 @@ const VocabList = () => {
       {loading ? (
         <p>Loading...</p>
       ) : (
-        <div className="data-grid">
-          {vocabs.map(vocab => (
-            <div key={vocab.id} className={`glass-panel item-card ${selectedIds.includes(vocab.id) ? 'ring-2 ring-primary' : ''}`}>
-              <div className="flex justify-between items-start mb-2">
-                <div className="flex items-center gap-3">
-                  <input 
-                    type="checkbox" 
-                    className="w-5 h-5 accent-primary cursor-pointer" 
-                    checked={selectedIds.includes(vocab.id)}
-                    onChange={() => handleToggleSelect(vocab.id)}
-                  />
-                  <h3 className="jp-text text-2xl text-primary m-0">{vocab.word}</h3>
+        <>
+          <div className="data-grid">
+            {currentVocabs.map(vocab => (
+              <div key={vocab.id} className={`glass-panel item-card ${selectedIds.includes(vocab.id) ? 'ring-2 ring-primary' : ''}`}>
+                <div className="flex justify-between items-start mb-2">
+                  <div className="flex items-center gap-3">
+                    <input 
+                      type="checkbox" 
+                      className="w-5 h-5 accent-primary cursor-pointer" 
+                      checked={selectedIds.includes(vocab.id)}
+                      onChange={() => handleToggleSelect(vocab.id)}
+                    />
+                    <h3 className="jp-text text-2xl text-primary m-0">{vocab.word}</h3>
+                  </div>
+                  <div className="flex gap-2">
+                    {vocab.type && <span className="bg-indigo-500/20 text-indigo-300 text-xs px-2 py-1 rounded">{vocab.type}</span>}
+                    {vocab.topic && <span className="bg-pink-500/20 text-pink-300 text-xs px-2 py-1 rounded">{vocab.topic}</span>}
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  {vocab.type && <span className="bg-indigo-500/20 text-indigo-300 text-xs px-2 py-1 rounded">{vocab.type}</span>}
-                  {vocab.topic && <span className="bg-pink-500/20 text-pink-300 text-xs px-2 py-1 rounded">{vocab.topic}</span>}
+                <p className="jp-text text-muted">{vocab.reading}</p>
+                <p className="mt-4" style={{ whiteSpace: 'pre-wrap' }}>{vocab.meaning}</p>
+                
+                {vocab.example && (
+                  <div className="mt-4 p-3 border-l-2 border-primary bg-white/5 rounded-r">
+                    <span className="text-xs text-muted block mb-1">例文:</span>
+                    <p className="jp-text" style={{ whiteSpace: 'pre-wrap' }}>{vocab.example}</p>
+                  </div>
+                )}
+                
+                <div className="item-actions mt-auto">
+                  <button 
+                    className={`btn flex-1 ${vocab.inReviewCycle === false ? 'btn-danger' : 'btn-success'}`}
+                    onClick={() => handleToggleReview(vocab)}
+                    title={vocab.inReviewCycle === false ? '復習オフ' : '復習オン'}
+                  >
+                    {vocab.inReviewCycle === false ? <EyeOff size={16} /> : <Eye size={16} />} 
+                    {vocab.inReviewCycle === false ? 'オフ' : 'オン'}
+                  </button>
+                  <button className="btn btn-secondary flex-1" onClick={() => handleOpenModal(vocab)}>
+                    <Edit2 size={16} /> 編集
+                  </button>
+                  <button className="btn btn-danger flex-1" onClick={() => handleDelete(vocab.id)}>
+                    <Trash2 size={16} /> 削除
+                  </button>
                 </div>
               </div>
-              <p className="jp-text text-muted">{vocab.reading}</p>
-              <p className="mt-4" style={{ whiteSpace: 'pre-wrap' }}>{vocab.meaning}</p>
-              
-              {vocab.example && (
-                <div className="mt-4 p-3 border-l-2 border-primary bg-white/5 rounded-r">
-                  <span className="text-xs text-muted block mb-1">例文:</span>
-                  <p className="jp-text" style={{ whiteSpace: 'pre-wrap' }}>{vocab.example}</p>
-                </div>
-              )}
-              
-              <div className="item-actions mt-auto">
-                <button 
-                  className={`btn flex-1 ${vocab.inReviewCycle === false ? 'btn-danger' : 'btn-success'}`}
-                  onClick={() => handleToggleReview(vocab)}
-                  title={vocab.inReviewCycle === false ? '復習オフ' : '復習オン'}
-                >
-                  {vocab.inReviewCycle === false ? <EyeOff size={16} /> : <Eye size={16} />} 
-                  {vocab.inReviewCycle === false ? 'オフ' : 'オン'}
-                </button>
-                <button className="btn btn-secondary flex-1" onClick={() => handleOpenModal(vocab)}>
-                  <Edit2 size={16} /> 編集
-                </button>
-                <button className="btn btn-danger flex-1" onClick={() => handleDelete(vocab.id)}>
-                  <Trash2 size={16} /> 削除
-                </button>
-              </div>
+            ))}
+            {currentVocabs.length === 0 && <p className="text-muted">単語がありません。</p>}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex justify-center gap-2 mt-8">
+              <button 
+                className="btn btn-secondary" 
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              >
+                前へ
+              </button>
+              <span className="flex items-center px-4">
+                {currentPage} / {totalPages}
+              </span>
+              <button 
+                className="btn btn-secondary" 
+                disabled={currentPage === totalPages}
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              >
+                次へ
+              </button>
             </div>
-          ))}
-          {vocabs.length === 0 && <p className="text-muted">単語がありません。</p>}
-        </div>
+          )}
+        </>
       )}
 
       {isModalOpen && (
