@@ -325,6 +325,12 @@ const FlashcardReview = () => {
                         {currentItem.type}
                       </span>
                     )}
+                    {currentItem.example && (
+                      <div className="mt-4 text-sm text-left w-full border-t border-white/10 pt-3">
+                        <span className="text-xs text-indigo-300">例文: </span>
+                        <span className="jp-text text-gray-300" style={{ whiteSpace: 'pre-wrap' }}>{currentItem.example}</span>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <>
@@ -350,6 +356,12 @@ const FlashcardReview = () => {
                       <span className="bg-indigo-500/20 text-indigo-300 text-sm px-3 py-1 rounded-full mt-4 block mx-auto w-max">
                         {currentItem.type}
                       </span>
+                    )}
+                    {currentItem.example && (
+                      <div className="mt-4 text-sm text-left w-full border-t border-white/10 pt-3">
+                        <span className="text-xs text-indigo-300">例文: </span>
+                        <span className="jp-text text-gray-300" style={{ whiteSpace: 'pre-wrap' }}>{currentItem.example}</span>
+                      </div>
                     )}
                   </>
                 ) : (
