@@ -8,13 +8,18 @@ const VocabList = () => {
   const [vocabs, setVocabs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState({ id: null, word: '', reading: '', meaning: '', type: '名詞', topic: '' });
+  const [formData, setFormData] = useState({ id: null, word: '', reading: '', meaning: '', type: '名詞', topic: '', example: '' });
+
+  const [selectedIds, setSelectedIds] = useState([]);
 
   const fetchVocabs = async () => {
     setLoading(true);
     try {
       const data = await getItems('vocab');
-      setVocabs(data || []);
+      // Sort explicitly by ID descending (Firebase push keys are chronologically sortable)
+      const sortedData = data ? [...data].sort((a, b) => b.id.localeCompare(a.id)) : [];
+      setVocabs(sortedData);
+      setSelectedIds([]); // Reset selection on fetch
     } catch (e) {
       console.error("Error fetching vocabs:", e);
     } finally {
@@ -28,9 +33,10 @@ const VocabList = () => {
 
   const handleOpenModal = (vocab = null) => {
     if (vocab) {
-      setFormData(vocab);
+      // Ensure example field exists even for old data
+      setFormData({ ...vocab, example: vocab.example || '' });
     } else {
-      setFormData({ id: null, word: '', reading: '', meaning: '', type: '名詞', topic: '' });
+      setFormData({ id: null, word: '', reading: '', meaning: '', type: '名詞', topic: '', example: '' });
     }
     setIsModalOpen(true);
   };
@@ -44,7 +50,8 @@ const VocabList = () => {
           reading: formData.reading,
           meaning: formData.meaning,
           type: formData.type,
-          topic: formData.topic
+          topic: formData.topic,
+          example: formData.example || null
         });
       } else {
         await addItem('vocab', {
@@ -52,7 +59,8 @@ const VocabList = () => {
           reading: formData.reading,
           meaning: formData.meaning,
           type: formData.type,
-          topic: formData.topic
+          topic: formData.topic,
+          example: formData.example || null
         });
       }
       setIsModalOpen(false);
@@ -83,6 +91,40 @@ const VocabList = () => {
     }
   };
 
+  const handleToggleSelect = (id) => {
+    setSelectedIds(prev => 
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAll = () => {
+    if (selectedIds.length === vocabs.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(vocabs.map(v => v.id));
+    }
+  };
+
+  const handleExportSelected = () => {
+    const selectedItems = vocabs
+      .filter(v => selectedIds.includes(v.id))
+      .map(v => ({
+        word: v.word,
+        reading: v.reading,
+        meaning: v.meaning
+      }));
+    const dataStr = JSON.stringify(selectedItems, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `vocab_export_${new Date().getTime()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   // Only vocab topics (separated)
   const existingTopics = Array.from(
     new Set(vocabs.map(v => v.topic && typeof v.topic === 'string' ? v.topic.trim() : '').filter(Boolean))
@@ -90,11 +132,28 @@ const VocabList = () => {
 
   return (
     <div className="animate-fade-in">
-      <div className="flex justify-between items-center mb-8">
-        <h1>単語の管理</h1>
-        <button className="btn btn-primary" onClick={() => handleOpenModal()}>
-          <Plus size={20} /> 新しく追加
-        </button>
+      <div className="flex justify-between items-center mb-8 flex-wrap gap-4">
+        <div className="flex items-center gap-4">
+          <h1 className="mb-0">単語の管理</h1>
+          {vocabs.length > 0 && (
+            <button 
+              className="btn btn-secondary text-sm" 
+              onClick={handleSelectAll}
+            >
+              {selectedIds.length === vocabs.length ? '全選択解除' : 'すべて選択'}
+            </button>
+          )}
+        </div>
+        <div className="flex gap-2">
+          {selectedIds.length > 0 && (
+            <button className="btn bg-green-600 hover:bg-green-700 text-white" onClick={handleExportSelected}>
+              JSON出力 ({selectedIds.length})
+            </button>
+          )}
+          <button className="btn btn-primary" onClick={() => handleOpenModal()}>
+            <Plus size={20} /> 新しく追加
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -102,9 +161,17 @@ const VocabList = () => {
       ) : (
         <div className="data-grid">
           {vocabs.map(vocab => (
-            <div key={vocab.id} className="glass-panel item-card">
-              <div className="flex justify-between items-start">
-                <h3 className="jp-text text-2xl text-primary">{vocab.word}</h3>
+            <div key={vocab.id} className={`glass-panel item-card ${selectedIds.includes(vocab.id) ? 'ring-2 ring-primary' : ''}`}>
+              <div className="flex justify-between items-start mb-2">
+                <div className="flex items-center gap-3">
+                  <input 
+                    type="checkbox" 
+                    className="w-5 h-5 accent-primary cursor-pointer" 
+                    checked={selectedIds.includes(vocab.id)}
+                    onChange={() => handleToggleSelect(vocab.id)}
+                  />
+                  <h3 className="jp-text text-2xl text-primary m-0">{vocab.word}</h3>
+                </div>
                 <div className="flex gap-2">
                   {vocab.type && <span className="bg-indigo-500/20 text-indigo-300 text-xs px-2 py-1 rounded">{vocab.type}</span>}
                   {vocab.topic && <span className="bg-pink-500/20 text-pink-300 text-xs px-2 py-1 rounded">{vocab.topic}</span>}
@@ -112,6 +179,13 @@ const VocabList = () => {
               </div>
               <p className="jp-text text-muted">{vocab.reading}</p>
               <p className="mt-4" style={{ whiteSpace: 'pre-wrap' }}>{vocab.meaning}</p>
+              
+              {vocab.example && (
+                <div className="mt-4 p-3 border-l-2 border-primary bg-white/5 rounded-r">
+                  <span className="text-xs text-muted block mb-1">例文:</span>
+                  <p className="jp-text" style={{ whiteSpace: 'pre-wrap' }}>{vocab.example}</p>
+                </div>
+              )}
               
               <div className="item-actions mt-auto">
                 <button 
@@ -223,6 +297,15 @@ const VocabList = () => {
                   value={formData.meaning} 
                   onChange={e => setFormData({...formData, meaning: e.target.value})} 
                   placeholder="例: Ăn uống, dùng bữa..."
+                />
+              </div>
+              <div className="input-group">
+                <label>例文 (Ví dụ - Không bắt buộc)</label>
+                <textarea 
+                  rows={2}
+                  value={formData.example} 
+                  onChange={e => setFormData({...formData, example: e.target.value})} 
+                  placeholder="例: 毎日りんごを食べる。(Mỗi ngày tôi ăn táo)"
                 />
               </div>
               <div className="flex gap-4 mt-4">

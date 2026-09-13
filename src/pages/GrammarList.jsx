@@ -10,11 +10,16 @@ const GrammarList = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({ id: null, title: '', structure: '', meaning: '', example: '', topic: '', usage: '' });
 
+  const [selectedIds, setSelectedIds] = useState([]);
+
   const fetchGrammars = async () => {
     setLoading(true);
     try {
       const data = await getItems('grammar');
-      setGrammars(data || []);
+      // Sort explicitly by ID descending (Firebase push keys are chronologically sortable)
+      const sortedData = data ? [...data].sort((a, b) => b.id.localeCompare(a.id)) : [];
+      setGrammars(sortedData);
+      setSelectedIds([]);
     } catch (e) {
       console.error("Error fetching grammars:", e);
     } finally {
@@ -79,6 +84,40 @@ const GrammarList = () => {
     }
   };
 
+  const handleToggleSelect = (id) => {
+    setSelectedIds(prev => 
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAll = () => {
+    if (selectedIds.length === grammars.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(grammars.map(g => g.id));
+    }
+  };
+
+  const handleExportSelected = () => {
+    const selectedItems = grammars
+      .filter(g => selectedIds.includes(g.id))
+      .map(g => ({
+        title: g.title,
+        structure: g.structure,
+        meaning: g.meaning
+      }));
+    const dataStr = JSON.stringify(selectedItems, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `grammar_export_${new Date().getTime()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   // Only grammar topics (separated)
   const existingTopics = Array.from(
     new Set(grammars.map(g => g.topic && typeof g.topic === 'string' ? g.topic.trim() : '').filter(Boolean))
@@ -86,11 +125,28 @@ const GrammarList = () => {
 
   return (
     <div className="animate-fade-in">
-      <div className="flex justify-between items-center mb-8">
-        <h1>文法の管理</h1>
-        <button className="btn btn-primary" onClick={() => handleOpenModal()}>
-          <Plus size={20} /> 新しく追加
-        </button>
+      <div className="flex justify-between items-center mb-8 flex-wrap gap-4">
+        <div className="flex items-center gap-4">
+          <h1 className="mb-0">文法の管理</h1>
+          {grammars.length > 0 && (
+            <button 
+              className="btn btn-secondary text-sm" 
+              onClick={handleSelectAll}
+            >
+              {selectedIds.length === grammars.length ? '全選択解除' : 'すべて選択'}
+            </button>
+          )}
+        </div>
+        <div className="flex gap-2">
+          {selectedIds.length > 0 && (
+            <button className="btn bg-green-600 hover:bg-green-700 text-white" onClick={handleExportSelected}>
+              JSON出力 ({selectedIds.length})
+            </button>
+          )}
+          <button className="btn btn-primary" onClick={() => handleOpenModal()}>
+            <Plus size={20} /> 新しく追加
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -98,9 +154,17 @@ const GrammarList = () => {
       ) : (
         <div className="data-grid">
           {grammars.map(grammar => (
-            <div key={grammar.id} className="glass-panel item-card">
-              <div className="flex justify-between items-start">
-                <h3 className="jp-text text-xl text-pink-400">{grammar.title}</h3>
+            <div key={grammar.id} className={`glass-panel item-card ${selectedIds.includes(grammar.id) ? 'ring-2 ring-primary' : ''}`}>
+              <div className="flex justify-between items-start mb-2">
+                <div className="flex items-center gap-3">
+                  <input 
+                    type="checkbox" 
+                    className="w-5 h-5 accent-primary cursor-pointer" 
+                    checked={selectedIds.includes(grammar.id)}
+                    onChange={() => handleToggleSelect(grammar.id)}
+                  />
+                  <h3 className="jp-text text-xl text-pink-400 m-0">{grammar.title}</h3>
+                </div>
                 {grammar.topic && <span className="bg-pink-500/20 text-pink-300 text-xs px-2 py-1 rounded">{grammar.topic}</span>}
               </div>
               <p className="jp-text text-muted font-mono bg-black/20 p-2 rounded mt-2" style={{ whiteSpace: 'pre-wrap' }}>{grammar.structure}</p>
