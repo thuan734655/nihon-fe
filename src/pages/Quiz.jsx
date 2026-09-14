@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { getItems } from '../services/api';
+import { getItems, updateItem } from '../services/api';
+
+const SRS_INTERVALS = [1, 2, 4, 7, 14, 30, 90, 180];
 
 const Quiz = () => {
   const [vocabs, setVocabs] = useState([]);
@@ -11,17 +13,19 @@ const Quiz = () => {
   const [selectedAnswer, setSelectedAnswer] = useState(null);
   const [isStarted, setIsStarted] = useState(false);
 
+  const fetchVocabs = async () => {
+    setLoading(true);
+    try {
+      const data = await getItems('vocab');
+      setVocabs(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchVocabs = async () => {
-      try {
-        const data = await getItems('vocab');
-        setVocabs(data);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchVocabs();
   }, []);
 
@@ -30,16 +34,25 @@ const Quiz = () => {
       alert("クイズを始めるには、少なくとも4つの単語が必要です。");
       return;
     }
+
+    const now = new Date();
+    // Lọc ra các từ vựng tới hạn ôn tập
+    const dueVocabs = vocabs.filter(v => v.inReviewCycle !== false && new Date(v.nextReviewDate || 0) <= now);
+
+    if (dueVocabs.length === 0) {
+      alert("今日は復習する単語がありません！素晴らしい！ (Hôm nay bạn đã ôn hết từ vựng rồi!)");
+      return;
+    }
     
-    // Shuffle and pick 10 questions (or all if < 10)
-    const shuffled = [...vocabs].sort(() => 0.5 - Math.random());
-    const selectedVocabs = shuffled.slice(0, Math.min(10, shuffled.length));
+    // Shuffle and pick 10 questions from due vocabs
+    const shuffledDue = [...dueVocabs].sort(() => 0.5 - Math.random());
+    const selectedVocabs = shuffledDue.slice(0, Math.min(10, shuffledDue.length));
 
     const generatedQuestions = selectedVocabs.map(vocab => {
       const isJpToVi = Math.random() > 0.5;
       
-      // Get 3 wrong answers
-      const wrongAnswers = shuffled
+      // Get 3 wrong answers from ALL vocabs
+      const wrongAnswers = [...vocabs]
         .filter(v => v.id !== vocab.id)
         .sort(() => 0.5 - Math.random())
         .slice(0, 3);
@@ -52,7 +65,8 @@ const Quiz = () => {
         question: isJpToVi ? `の意味は "${vocab.word}" 何ですか？` : `単語 tiếng Nhật của "${vocab.meaning}" 何ですか？`,
         options,
         answer: isJpToVi ? vocab.meaning : vocab.word,
-        vocabWord: vocab.word
+        vocabWord: vocab.word,
+        vocabData: vocab // Giữ lại toàn bộ data để tính toán SRS
       };
     });
 
@@ -64,7 +78,7 @@ const Quiz = () => {
     setIsStarted(true);
   };
 
-  const handleSelectAnswer = (option) => {
+  const handleSelectAnswer = async (option) => {
     if (selectedAnswer !== null) return; // Prevent double clicking
     
     setSelectedAnswer(option);
@@ -72,6 +86,31 @@ const Quiz = () => {
     const isCorrect = option === questions[currentQuestionIndex].answer;
     if (isCorrect) {
       setScore(prev => prev + 1);
+    }
+
+    // Tính toán và cập nhật SRS
+    try {
+      const vocab = questions[currentQuestionIndex].vocabData;
+      let newIntervalIndex = 0;
+      if (isCorrect) {
+        const currentIndex = SRS_INTERVALS.indexOf(vocab.interval || 1);
+        newIntervalIndex = currentIndex >= 0 ? currentIndex + 1 : 1;
+        if (newIntervalIndex >= SRS_INTERVALS.length) newIntervalIndex = SRS_INTERVALS.length - 1;
+      }
+      
+      const nextIntervalDays = SRS_INTERVALS[newIntervalIndex];
+      const nextReviewDate = new Date();
+      nextReviewDate.setDate(nextReviewDate.getDate() + nextIntervalDays);
+
+      await updateItem('vocab', vocab.id, {
+        interval: nextIntervalDays,
+        nextReviewDate: nextReviewDate.toISOString()
+      });
+
+      // Update local state immediately so if they play again, it filters properly
+      setVocabs(prev => prev.map(v => v.id === vocab.id ? { ...v, interval: nextIntervalDays, nextReviewDate: nextReviewDate.toISOString() } : v));
+    } catch (e) {
+      console.error("Failed to update SRS", e);
     }
 
     setTimeout(() => {
